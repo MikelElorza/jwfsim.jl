@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.14
+# v0.19.19
 
 using Markdown
 using InteractiveUtils
@@ -154,7 +154,7 @@ md"""
 # ╔═╡ 9eea388f-c453-480d-b022-2340fe880b89
 begin
 	pwr=1mW
-	emwl=375nm
+	emwl=405nm
 	sbx=2.0mm
 	sby=2.0mm
 	md"""
@@ -413,6 +413,9 @@ md""" Set the number of frames $N_t$ : $(@bind Nt NumberField(1:200, default=100
 # ╔═╡ d5dfad8c-6b6c-4d08-93fc-7971c7bec339
 md""" Select frame number : $(@bind Nframe NumberField(1:Nt, default=Nt))"""
 
+# ╔═╡ 2a227d48-ba69-45f5-bc0a-8ae6e6d3ccf7
+
+
 # ╔═╡ 092ff59e-3aae-4dde-a778-973eb83acba1
 md"""
 # Data analysis
@@ -433,8 +436,10 @@ md"""
 # Functions
 """
 
-# ╔═╡ b1220702-56fc-4a4e-85e3-2194f0c6266d
-dct*texp.+readout_nt
+# ╔═╡ 3ee11793-413a-4c22-b42c-c31265aecd44
+function find_clusters(tt,min_cluster_size)
+	c=dbscan(tt, 1, min_cluster_size=min_cluster_size)
+end
 
 # ╔═╡ 932ec313-85d5-4794-bda3-5d473b786ba0
 function camera_response(N_i,QE,dct,rnt,texp)
@@ -489,6 +494,18 @@ function frame(poss_array,spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dc,readout_n)
 	N_em_dl = imfilter(N_em,Kernel.gaussian((sigma_dl[1],sigma_dl[2])))
 	N_e=camera_response(N_em_dl,QE,dc,readout_n,texp)
 end
+
+# ╔═╡ 003a2b16-665b-44a7-8dbd-c121b6e96a78
+function signal_evol(datas,spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dc,readout_n)
+	data=frame(datas[:,:,1],spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dct,readout_nt)
+	Nt=size(datas)[3]
+	for Nframe in range(2,Nt)
+		datat=datas[:,:,Nframe]
+		imt=frame(datat,spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dct,readout_nt)
+		data=cat(data,imt,dims=3)
+	end
+	data
+end	
 
 # ╔═╡ 7eada1cb-8890-4470-a9e2-f42620c9aa45
 rand()
@@ -558,6 +575,9 @@ Positions (x,y) in microns of the generated molecules are stored in 'poss' array
 """
 end
 
+# ╔═╡ ae016710-e431-4852-b4b8-def249c663a4
+poss
+
 # ╔═╡ d9e3e919-f1b6-4b0b-9e07-04d5855f3587
 md""" Select x0 position on the sample (in microns). It ranges from 0 to $smu : $(@bind x0_0 NumberField(0:smu/μm, default=smu/2/μm))"""
 
@@ -611,11 +631,59 @@ begin
 	md""" The temporal evolution of the molecule distribution is stored in an $npxx x $npxy x $Nt array (named datas). Each [:,:,i] slide represents a molecule distribution."""
 end
 
-# ╔═╡ 646e52c4-5c4c-460c-be3d-b2382745ac89
+# ╔═╡ cd316a10-c17b-444b-9e7a-5ab5dff6aaf9
+sigdata=signal_evol(datas,spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dct,readout_nt);
+
+# ╔═╡ 465e3476-e24d-44ed-aa59-31858e8efd4b
+heatmap(sigdata[:,:,Nframe])
+
+# ╔═╡ 1c37e944-f18a-440d-ac01-bf8ecdb384c9
 begin
-	datat=datas[:,:,Nframe]
-	imt=frame(datat,spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dct,readout_nt)
-	heatmap(imt)
+	imt0=sigdata[:,:,1]
+	threshim=imt0 .>thresh
+	tt=Float64.(hcat(collect.(Tuple.(findall(x->x==1,threshim)))...))
+end;
+
+# ╔═╡ 1fa4b498-0c7a-404e-9760-d526a0a3d40a
+begin
+clusters=find_clusters(tt,2)
+nclust=size(clusters)[1]
+md""" There are $nclust clusters"""
+end
+
+# ╔═╡ f6aa8eee-4537-4b0e-a6b0-6efd2b27c9f0
+md""" Select cluster : $(@bind clustn NumberField(1:nclust,default=1))"""
+
+# ╔═╡ e053e5d8-fde0-46b7-936c-e05360ecf479
+s_noise=(dct*texp.+readout_nt)*sqrt(clusters[clustn].size)
+
+# ╔═╡ ba4f3b05-d7eb-4a2f-b140-63115e26cd07
+th_ssp=6*s_noise
+
+# ╔═╡ 58d1ce85-a91d-4923-99a3-9517f8f8bff9
+function single_step_photobleaching(signalROI,npixel,noisethresh)
+	dif=abs.(diff(signalROI))
+	findall(x->x>th_ssp,dif)
+end
+
+# ╔═╡ a30f2d1a-58c9-49fd-9f66-40894b83a2e3
+function get_cluster(tt,c,n)
+	clusteri=clusters[clustn].core_indices
+	clust=[tt[:,i] for i in clusteri]
+	clustm=Int64.(transpose.(reduce(vcat,transpose.(clust))))
+end
+
+# ╔═╡ e7a683e9-7545-4f57-835b-ea4a96320596
+clustm=get_cluster(tt,clusters,clustn);
+
+# ╔═╡ bf5b51d6-009b-4866-b489-2edd3d9a05a6
+begin
+	pROIs=heatmap(threshim)
+	scatter!([clustm[1,:][1]],[clustm[1,:][2]], markershape=:circle,label="ROI")
+	
+	psincl=[imt0[row[1],row[2]] for row in eachrow(clustm)]
+	pROI=scatter(clustm[:,1],clustm[:,2],marker_z=psincl)
+	plot(pROIs,pROI,size=(1000,400))
 end
 
 # ╔═╡ ec93b3d6-bdef-4cb9-9be7-08693174beaf
@@ -630,74 +698,35 @@ end
 # ╔═╡ 420756fd-4f72-4eda-90be-e81939137677
 plot(moleculen,xlabel="Frame",ylabel="Number of molecules in FOV")
 
-# ╔═╡ 1c37e944-f18a-440d-ac01-bf8ecdb384c9
-begin
-	datat0=datas[:,:,1]
-	imt0=frame(datat0,spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dct,readout_nt)
-	threshim=Gray.(imt0) .>thresh
-end;
-
-# ╔═╡ 1fa4b498-0c7a-404e-9760-d526a0a3d40a
-begin
-tt=Float64.(hcat(collect.(Tuple.(findall(x->x==1,threshim)))...))
-clusters=dbscan(tt,1,min_cluster_size = 5)
-nclust=size(clusters)[1]
-md""" There are $nclust clusters"""
-end
-
-# ╔═╡ 7a53b395-cab1-44b0-b802-12fe32833e22
-clusters[1].size
-
-# ╔═╡ f6aa8eee-4537-4b0e-a6b0-6efd2b27c9f0
-md""" Select cluster : $(@bind clustn NumberField(1:nclust,default=1))"""
-
-# ╔═╡ e7a683e9-7545-4f57-835b-ea4a96320596
-
-begin
-	clusteri=clusters[clustn].core_indices
-	clust=[tt[:,i] for i in clusteri]
-	clustm=Int64.(transpose.(reduce(vcat,transpose.(clust))))
-end;
-
-# ╔═╡ e053e5d8-fde0-46b7-936c-e05360ecf479
-s_noise=dct*texp.+readout_nt*sqrt(clusters[clustn].size)
-
-# ╔═╡ ba4f3b05-d7eb-4a2f-b140-63115e26cd07
-th_ssp=6*s_noise
-
-# ╔═╡ bf5b51d6-009b-4866-b489-2edd3d9a05a6
-begin
-	pROIs=heatmap(threshim)
-	scatter!([clustm[1,:][1]],[clustm[1,:][2]], markershape=:circle,label="ROI")
-	
-	psincl=[imt0[row[1],row[2]] for row in eachrow(clustm)]
-	pROI=scatter(clustm[:,1],clustm[:,2],marker_z=psincl)
-	plot(pROIs,pROI,size=(1000,400))
-end
-
-# ╔═╡ 7e07dafb-2ff2-4a35-b9b9-e7bc84c1ccfa
-begin
-	psROI=[]
+# ╔═╡ 5cfb1704-76ad-48cf-94f0-7b1cc4feb05e
+function fluorescent_trajectory(clustm,sigdata)
 	signalROI=[]
+	Nt=size(datas)[3]
 	for i in range(1,Nt)
-		datatt=datas[:,:,i]
-		imtt=frame(datatt,spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dct,readout_nt)
-		psinclt=[datatt[row[1],row[2]] for row in eachrow(clustm)]
+		imtt=sigdata[:,:,i]
 		siginclt=[imtt[row[1],row[2]] for row in eachrow(clustm)]
-		append!(psROI,sum(psinclt))
 		append!(signalROI,sum(siginclt))
 	end
-	
+	signalROI
 end
 
-# ╔═╡ 61700541-c9c2-41d0-beb1-3dd25351313c
-plot(signalROI,xlabel="Frame",ylabel="Signal in ROI")
+# ╔═╡ d2d5985a-85b1-4070-9c56-c0963796c5c8
+begin
+	signalROI=fluorescent_trajectory(clustm,sigdata)
+	psROI=fluorescent_trajectory(clustm,datas)
+	straj=plot(signalROI,xlabel="Frame",ylabel="Signal in ROI")
+	ptraj=plot(fluorescent_trajectory(clustm,datas),xlabel="Frame",ylabel="Molecules in ROI")
+	plot(ptraj,straj,size=(1000,400))
+end
 
 # ╔═╡ 46f1ae54-e09e-4540-b2a2-a9d05a39cccd
 begin
 	plot(abs.(diff(signalROI)))
 	hline!([th_ssp], linestyle=:dash)
 end
+
+# ╔═╡ dcfe5891-a77f-4d9b-9e2a-194e14ec513c
+single_step_photobleaching(signalROI,clusters[clustn].size,th_ssp)
 
 # ╔═╡ 03bf3bfb-2ec3-4ffa-9e83-37e21634a59d
 function tonpers(r::Float64, s::Float64, unit)
@@ -774,6 +803,7 @@ pois_rand
 # ╟─39ec5a5f-8e06-4143-8016-39fc9020aaa1
 # ╟─84e73dfd-a9a3-4bd4-93ce-2fc4a4e78f1b
 # ╟─b32cd1dd-a93a-41e6-a9cd-92bb9295f3ad
+# ╟─ae016710-e431-4852-b4b8-def249c663a4
 # ╟─766d17b5-499a-4a28-8628-3031b023a851
 # ╟─a24aab57-2145-40de-bfd0-b768fef6d01d
 # ╟─f7f4ba8b-e1a6-4632-a785-767b2bfb646f
@@ -823,7 +853,9 @@ pois_rand
 # ╟─48ad5b24-bb6e-4628-8df0-0e00a4dc336f
 # ╟─1b13988e-8e3b-475e-8e08-8a92e4a638e4
 # ╟─d5dfad8c-6b6c-4d08-93fc-7971c7bec339
-# ╠═646e52c4-5c4c-460c-be3d-b2382745ac89
+# ╠═cd316a10-c17b-444b-9e7a-5ab5dff6aaf9
+# ╠═465e3476-e24d-44ed-aa59-31858e8efd4b
+# ╠═2a227d48-ba69-45f5-bc0a-8ae6e6d3ccf7
 # ╟─ec93b3d6-bdef-4cb9-9be7-08693174beaf
 # ╟─420756fd-4f72-4eda-90be-e81939137677
 # ╟─092ff59e-3aae-4dde-a778-973eb83acba1
@@ -831,19 +863,22 @@ pois_rand
 # ╟─095c751f-b5de-42ed-b3cc-e9d518fe0bc8
 # ╠═1c37e944-f18a-440d-ac01-bf8ecdb384c9
 # ╠═1fa4b498-0c7a-404e-9760-d526a0a3d40a
-# ╠═7a53b395-cab1-44b0-b802-12fe32833e22
 # ╟─f6aa8eee-4537-4b0e-a6b0-6efd2b27c9f0
 # ╠═e7a683e9-7545-4f57-835b-ea4a96320596
 # ╠═bf5b51d6-009b-4866-b489-2edd3d9a05a6
-# ╠═7e07dafb-2ff2-4a35-b9b9-e7bc84c1ccfa
-# ╠═61700541-c9c2-41d0-beb1-3dd25351313c
+# ╠═d2d5985a-85b1-4070-9c56-c0963796c5c8
 # ╠═ca0321ca-9cb0-44f0-b94a-2ef6afd3411d
 # ╠═e053e5d8-fde0-46b7-936c-e05360ecf479
 # ╠═ba4f3b05-d7eb-4a2f-b140-63115e26cd07
 # ╠═46f1ae54-e09e-4540-b2a2-a9d05a39cccd
+# ╠═dcfe5891-a77f-4d9b-9e2a-194e14ec513c
 # ╠═c2289697-ab87-4f11-81e6-bee3439ca3cb
-# ╠═b1220702-56fc-4a4e-85e3-2194f0c6266d
+# ╠═3ee11793-413a-4c22-b42c-c31265aecd44
+# ╠═a30f2d1a-58c9-49fd-9f66-40894b83a2e3
+# ╠═5cfb1704-76ad-48cf-94f0-7b1cc4feb05e
+# ╠═58d1ce85-a91d-4923-99a3-9517f8f8bff9
 # ╠═932ec313-85d5-4794-bda3-5d473b786ba0
+# ╠═003a2b16-665b-44a7-8dbd-c121b6e96a78
 # ╠═564e24e7-015f-4b5e-86a5-107909120b7f
 # ╠═32caa85b-f46a-4dc4-b3d8-d756bbd7e1f0
 # ╠═1e44b00e-70f5-4c46-a99e-939dbf5bf7f6
