@@ -413,9 +413,6 @@ md""" Set the number of frames $N_t$ : $(@bind Nt NumberField(1:200, default=100
 # ╔═╡ d5dfad8c-6b6c-4d08-93fc-7971c7bec339
 md""" Select frame number : $(@bind Nframe NumberField(1:Nt, default=Nt))"""
 
-# ╔═╡ 2a227d48-ba69-45f5-bc0a-8ae6e6d3ccf7
-
-
 # ╔═╡ 092ff59e-3aae-4dde-a778-973eb83acba1
 md"""
 # Data analysis
@@ -538,30 +535,6 @@ function frame(poss_array,spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dc,readout_n)
 	N_e=camera_response(N_em_dl,QE,dc,readout_n,texp)
 end
 
-# ╔═╡ 003a2b16-665b-44a7-8dbd-c121b6e96a78
-function signal_evol(datas,spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dc,readout_n)
-	data=frame(datas[:,:,1],spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dct,readout_nt)
-	Nt=size(datas)[3]
-	for Nframe in range(2,Nt)
-		datat=datas[:,:,Nframe]
-		imt=frame(datat,spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dct,readout_nt)
-		data=cat(data,imt,dims=3)
-	end
-	data
-end	
-
-# ╔═╡ 003a2b16-665b-44a7-8dbd-c121b6e96a78
-function signal_evol(datas,spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dc,readout_n)
-	data=frame(datas[:,:,1],spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dct,readout_nt)
-	Nt=size(datas)[3]
-	for Nframe in range(2,Nt)
-		datat=datas[:,:,Nframe]
-		imt=frame(datat,spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dct,readout_nt)
-		data=cat(data,imt,dims=3)
-	end
-	data
-end	
-
 # ╔═╡ 7eada1cb-8890-4470-a9e2-f42620c9aa45
 rand()
 
@@ -633,9 +606,6 @@ end
 # ╔═╡ ae016710-e431-4852-b4b8-def249c663a4
 poss
 
-# ╔═╡ ae016710-e431-4852-b4b8-def249c663a4
-poss
-
 # ╔═╡ d9e3e919-f1b6-4b0b-9e07-04d5855f3587
 md""" Select x0 position on the sample (in microns). It ranges from 0 to $smu : $(@bind x0_0 NumberField(0:smu/μm, default=smu/2/μm))"""
 
@@ -689,55 +659,6 @@ begin
 	md""" The temporal evolution of the molecule distribution is stored in an $npxx x $npxy x $Nt array (named datas). Each [:,:,i] slide represents a molecule distribution."""
 end
 
-# ╔═╡ cd316a10-c17b-444b-9e7a-5ab5dff6aaf9
-sigdata=signal_evol(datas,spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dct,readout_nt);
-
-# ╔═╡ 465e3476-e24d-44ed-aa59-31858e8efd4b
-heatmap(sigdata[:,:,Nframe])
-
-# ╔═╡ 1c37e944-f18a-440d-ac01-bf8ecdb384c9
-begin
-	imt0=sigdata[:,:,1]
-	threshim=imt0 .>thresh
-	tt=Float64.(hcat(collect.(Tuple.(findall(x->x==1,threshim)))...))
-end;
-
-# ╔═╡ 1fa4b498-0c7a-404e-9760-d526a0a3d40a
-begin
-tt=Float64.(hcat(collect.(Tuple.(findall(x->x==1,threshim)))...))
-clusters=dbscan(tt,1,min_cluster_size = 5)
-nclust=size(clusters)[1]
-md""" There are $nclust clusters"""
-end
-
-# ╔═╡ f6aa8eee-4537-4b0e-a6b0-6efd2b27c9f0
-md""" Select cluster : $(@bind clustn NumberField(1:nclust,default=1))"""
-
-# ╔═╡ e053e5d8-fde0-46b7-936c-e05360ecf479
-s_noise=(dct*texp.+readout_nt)*sqrt(clusters[clustn].size)
-
-# ╔═╡ e7a683e9-7545-4f57-835b-ea4a96320596
-clustm=get_cluster(tt,clusters,clustn);
-
-# ╔═╡ e7a683e9-7545-4f57-835b-ea4a96320596
-clustm=get_cluster(tt,clusters,clustn);
-
-# ╔═╡ e7a683e9-7545-4f57-835b-ea4a96320596
-clustm=get_cluster(tt,clusters,clustn);
-
-# ╔═╡ bf5b51d6-009b-4866-b489-2edd3d9a05a6
-begin
-	pROIs=heatmap(threshim)
-	scatter!([clustm[1,:][1]],[clustm[1,:][2]], markershape=:circle,label="ROI")
-	
-	psincl=[imt0[row[1],row[2]] for row in eachrow(clustm)]
-	pROI=scatter(clustm[:,1],clustm[:,2],marker_z=psincl)
-	plot(pROIs,pROI,size=(1000,400))
-end
-
-# ╔═╡ 5cd7671d-3537-48a1-8743-0f8eba8a250e
-cl_list=find_singles(sigdata,tt,6*(dct*texp.+readout_nt))
-
 # ╔═╡ ec93b3d6-bdef-4cb9-9be7-08693174beaf
 begin
 	moleculen=[]
@@ -749,24 +670,6 @@ end
 
 # ╔═╡ 420756fd-4f72-4eda-90be-e81939137677
 plot(moleculen,xlabel="Frame",ylabel="Number of molecules in FOV")
-
-# ╔═╡ d2d5985a-85b1-4070-9c56-c0963796c5c8
-begin
-	signalROI=fluorescent_trajectory(clustm,sigdata)
-	psROI=fluorescent_trajectory(clustm,datas)
-	straj=plot(signalROI,xlabel="Frame",ylabel="Signal in ROI")
-	ptraj=plot(fluorescent_trajectory(clustm,datas),xlabel="Frame",ylabel="Molecules in ROI")
-	plot(ptraj,straj,size=(1000,400))
-end
-
-# ╔═╡ 46f1ae54-e09e-4540-b2a2-a9d05a39cccd
-begin
-	plot(abs.(diff(signalROI)))
-	hline!([th_ssp], linestyle=:dash)
-end
-
-# ╔═╡ dcfe5891-a77f-4d9b-9e2a-194e14ec513c
-length(single_step_photobleaching(signalROI,th_ssp))
 
 # ╔═╡ 03bf3bfb-2ec3-4ffa-9e83-37e21634a59d
 function tonpers(r::Float64, s::Float64, unit)
@@ -809,6 +712,84 @@ struct Prueba
 	a=3
 	b::Int64
 end
+
+# ╔═╡ 003a2b16-665b-44a7-8dbd-c121b6e96a78
+function signal_evol(datas,spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dc,readout_n)
+	data=frame(datas[:,:,1],spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dct,readout_nt)
+	Nt=size(datas)[3]
+	for Nframe in range(2,Nt)
+		datat=datas[:,:,Nframe]
+		imt=frame(datat,spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dct,readout_nt)
+		data=cat(data,imt,dims=3)
+	end
+	data
+end	
+
+# ╔═╡ cd316a10-c17b-444b-9e7a-5ab5dff6aaf9
+sigdata=signal_evol(datas,spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dct,readout_nt);
+
+# ╔═╡ 465e3476-e24d-44ed-aa59-31858e8efd4b
+heatmap(sigdata[:,:,Nframe])
+
+# ╔═╡ 1c37e944-f18a-440d-ac01-bf8ecdb384c9
+begin
+	imt0=sigdata[:,:,1]
+	threshim=imt0 .>thresh
+	tt=Float64.(hcat(collect.(Tuple.(findall(x->x==1,threshim)))...))
+end;
+
+# ╔═╡ 1fa4b498-0c7a-404e-9760-d526a0a3d40a
+begin
+clusters=dbscan(tt,1,min_cluster_size = 5)
+nclust=size(clusters)[1]
+md""" There are $nclust clusters"""
+end
+
+# ╔═╡ f6aa8eee-4537-4b0e-a6b0-6efd2b27c9f0
+md""" Select cluster : $(@bind clustn NumberField(1:nclust,default=1))"""
+
+# ╔═╡ e053e5d8-fde0-46b7-936c-e05360ecf479
+s_noise=(dct*texp.+readout_nt)*sqrt(clusters[clustn].size)
+
+# ╔═╡ f5ecb5c5-01a5-4e8e-a0a3-fff436753cda
+th_ssp=s_noise*6
+
+# ╔═╡ e7a683e9-7545-4f57-835b-ea4a96320596
+clustm=get_cluster(tt,clusters,clustn);
+
+# ╔═╡ bf5b51d6-009b-4866-b489-2edd3d9a05a6
+begin
+	pROIs=heatmap(threshim)
+	scatter!([clustm[1,:][1]],[clustm[1,:][2]], markershape=:circle,label="ROI")
+	
+	psincl=[imt0[row[1],row[2]] for row in eachrow(clustm)]
+	pROI=scatter(clustm[:,1],clustm[:,2],marker_z=psincl)
+	plot(pROIs,pROI,size=(1000,400))
+end
+
+# ╔═╡ 4176f07e-f3a1-469e-97a7-887c19c2d8fd
+begin
+	signalROI=fluorescent_trajectory(clustm,sigdata)
+	psROI=fluorescent_trajectory(clustm,datas)
+	straj=plot(signalROI,xlabel="Frame",ylabel="Signal in ROI")
+	ptraj=plot(fluorescent_trajectory(clustm,datas),xlabel="Frame",ylabel="Molecules in ROI")
+	plot(ptraj,straj,size=(1000,400))
+end
+
+# ╔═╡ 46f1ae54-e09e-4540-b2a2-a9d05a39cccd
+begin
+	plot(abs.(diff(signalROI)))
+	hline!([th_ssp], linestyle=:dash)
+end
+
+# ╔═╡ dcfe5891-a77f-4d9b-9e2a-194e14ec513c
+length(single_step_photobleaching(signalROI,th_ssp))
+
+# ╔═╡ 5cd7671d-3537-48a1-8743-0f8eba8a250e
+cl_list=find_singles(sigdata,tt,6*(dct*texp.+readout_nt))
+
+# ╔═╡ 2a227d48-ba69-45f5-bc0a-8ae6e6d3ccf7
+
 
 # ╔═╡ Cell order:
 # ╠═625c1998-828c-11ed-2c7b-f731be119aaf
@@ -899,15 +880,13 @@ end
 # ╟─095c751f-b5de-42ed-b3cc-e9d518fe0bc8
 # ╠═1c37e944-f18a-440d-ac01-bf8ecdb384c9
 # ╠═1fa4b498-0c7a-404e-9760-d526a0a3d40a
-# ╠═7a53b395-cab1-44b0-b802-12fe32833e22
 # ╟─f6aa8eee-4537-4b0e-a6b0-6efd2b27c9f0
 # ╠═e7a683e9-7545-4f57-835b-ea4a96320596
 # ╠═bf5b51d6-009b-4866-b489-2edd3d9a05a6
-# ╠═7e07dafb-2ff2-4a35-b9b9-e7bc84c1ccfa
-# ╠═61700541-c9c2-41d0-beb1-3dd25351313c
+# ╠═4176f07e-f3a1-469e-97a7-887c19c2d8fd
 # ╠═ca0321ca-9cb0-44f0-b94a-2ef6afd3411d
 # ╠═e053e5d8-fde0-46b7-936c-e05360ecf479
-# ╠═ba4f3b05-d7eb-4a2f-b140-63115e26cd07
+# ╠═f5ecb5c5-01a5-4e8e-a0a3-fff436753cda
 # ╠═46f1ae54-e09e-4540-b2a2-a9d05a39cccd
 # ╠═dcfe5891-a77f-4d9b-9e2a-194e14ec513c
 # ╠═5cd7671d-3537-48a1-8743-0f8eba8a250e
@@ -920,6 +899,7 @@ end
 # ╠═932ec313-85d5-4794-bda3-5d473b786ba0
 # ╠═564e24e7-015f-4b5e-86a5-107909120b7f
 # ╠═32caa85b-f46a-4dc4-b3d8-d756bbd7e1f0
+# ╠═003a2b16-665b-44a7-8dbd-c121b6e96a78
 # ╠═1e44b00e-70f5-4c46-a99e-939dbf5bf7f6
 # ╠═ed8d60e5-fe91-4048-945f-692b791bbdae
 # ╠═7eada1cb-8890-4470-a9e2-f42620c9aa45
@@ -934,3 +914,4 @@ end
 # ╠═f893442d-230c-4ecd-b618-2ad89393963b
 # ╠═c0f7e1ad-37d2-4b42-8683-5d2088a8c4ea
 # ╠═7732ecf2-5339-423a-9b4a-cd0dce519d66
+# ╠═2a227d48-ba69-45f5-bc0a-8ae6e6d3ccf7
