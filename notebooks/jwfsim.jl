@@ -155,8 +155,8 @@ md"""
 begin
 	pwr=1mW
 	emwl=405nm
-	sbx=2.0mm
-	sby=2.0mm
+	sbx=0.05mm
+	sby=0.05mm
 	md"""
 	- Power = $pwr mW
 	- Emission wavelength = 375 nm
@@ -265,7 +265,7 @@ md""" ## Illumination in the FOV"""
 # ╔═╡ 907729d2-6b55-4afb-a3fd-5a450dd57a63
 begin
 center1 = [npxx/2, npxy/2]
-sigmas1 = [uconvert(NoUnits,sbx/spxfovx)/mag,uconvert(NoUnits,sby/spxfovy)/mag]
+sigmas1 = [uconvert(NoUnits,sbx/spxfovx),uconvert(NoUnits,sby/spxfovy)]
 pp = MvNormal(center1,sigmas1)
 
 X1 = range(0, npxx, length=npxx)
@@ -441,6 +441,49 @@ function find_clusters(tt,min_cluster_size)
 	c=dbscan(tt, 1, min_cluster_size=min_cluster_size)
 end
 
+# ╔═╡ a30f2d1a-58c9-49fd-9f66-40894b83a2e3
+function get_cluster(tt,clusters,n)
+	clusteri=clusters[n].core_indices
+	clust=[tt[:,i] for i in clusteri]
+	clustm=Int64.(transpose.(reduce(vcat,transpose.(clust))))
+end
+
+# ╔═╡ 5cfb1704-76ad-48cf-94f0-7b1cc4feb05e
+function fluorescent_trajectory(clustm,sigdata)
+	signalROI=[]
+	Nt=size(sigdata)[3]
+	for i in range(1,Nt)
+		imtt=sigdata[:,:,i]
+		siginclt=[imtt[row[1],row[2]] for row in eachrow(clustm)]
+		append!(signalROI,sum(siginclt))
+	end
+	signalROI
+end
+
+# ╔═╡ 58d1ce85-a91d-4923-99a3-9517f8f8bff9
+function single_step_photobleaching(signalROI,noisethresh)
+	dif=abs.(diff(signalROI))
+	findall(x->x>noisethresh,dif)
+end
+
+# ╔═╡ d22dbd8c-61c0-4079-9a38-d8a7a41ea67f
+function find_singles(sigdata,tt,noise)
+	clusters=find_clusters(tt,2)
+	nclust=size(clusters)[1]
+	cl_list=[]
+	for i in range(1,nclust)
+		clustm=get_cluster(tt,clusters,i)
+		signalROI=fluorescent_trajectory(clustm,sigdata)
+		th_ssp=sqrt(clusters[i].size)*noise
+		ssp=single_step_photobleaching(signalROI,th_ssp)
+		l=length(ssp)
+		if l>0
+			append!(cl_list,i)
+		end
+	end
+	cl_list
+end
+
 # ╔═╡ 932ec313-85d5-4794-bda3-5d473b786ba0
 function camera_response(N_i,QE,dct,rnt,texp)
 	sx=size
@@ -494,6 +537,18 @@ function frame(poss_array,spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dc,readout_n)
 	N_em_dl = imfilter(N_em,Kernel.gaussian((sigma_dl[1],sigma_dl[2])))
 	N_e=camera_response(N_em_dl,QE,dc,readout_n,texp)
 end
+
+# ╔═╡ 003a2b16-665b-44a7-8dbd-c121b6e96a78
+function signal_evol(datas,spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dc,readout_n)
+	data=frame(datas[:,:,1],spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dct,readout_nt)
+	Nt=size(datas)[3]
+	for Nframe in range(2,Nt)
+		datat=datas[:,:,Nframe]
+		imt=frame(datat,spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dct,readout_nt)
+		data=cat(data,imt,dims=3)
+	end
+	data
+end	
 
 # ╔═╡ 003a2b16-665b-44a7-8dbd-c121b6e96a78
 function signal_evol(datas,spxfovx,spxfovy,G,pwr,ei,sigma,dl,texp,dc,readout_n)
@@ -578,6 +633,9 @@ end
 # ╔═╡ ae016710-e431-4852-b4b8-def249c663a4
 poss
 
+# ╔═╡ ae016710-e431-4852-b4b8-def249c663a4
+poss
+
 # ╔═╡ d9e3e919-f1b6-4b0b-9e07-04d5855f3587
 md""" Select x0 position on the sample (in microns). It ranges from 0 to $smu : $(@bind x0_0 NumberField(0:smu/μm, default=smu/2/μm))"""
 
@@ -646,7 +704,8 @@ end;
 
 # ╔═╡ 1fa4b498-0c7a-404e-9760-d526a0a3d40a
 begin
-clusters=find_clusters(tt,2)
+tt=Float64.(hcat(collect.(Tuple.(findall(x->x==1,threshim)))...))
+clusters=dbscan(tt,1,min_cluster_size = 5)
 nclust=size(clusters)[1]
 md""" There are $nclust clusters"""
 end
@@ -657,21 +716,11 @@ md""" Select cluster : $(@bind clustn NumberField(1:nclust,default=1))"""
 # ╔═╡ e053e5d8-fde0-46b7-936c-e05360ecf479
 s_noise=(dct*texp.+readout_nt)*sqrt(clusters[clustn].size)
 
-# ╔═╡ ba4f3b05-d7eb-4a2f-b140-63115e26cd07
-th_ssp=6*s_noise
+# ╔═╡ e7a683e9-7545-4f57-835b-ea4a96320596
+clustm=get_cluster(tt,clusters,clustn);
 
-# ╔═╡ 58d1ce85-a91d-4923-99a3-9517f8f8bff9
-function single_step_photobleaching(signalROI,npixel,noisethresh)
-	dif=abs.(diff(signalROI))
-	findall(x->x>th_ssp,dif)
-end
-
-# ╔═╡ a30f2d1a-58c9-49fd-9f66-40894b83a2e3
-function get_cluster(tt,c,n)
-	clusteri=clusters[clustn].core_indices
-	clust=[tt[:,i] for i in clusteri]
-	clustm=Int64.(transpose.(reduce(vcat,transpose.(clust))))
-end
+# ╔═╡ e7a683e9-7545-4f57-835b-ea4a96320596
+clustm=get_cluster(tt,clusters,clustn);
 
 # ╔═╡ e7a683e9-7545-4f57-835b-ea4a96320596
 clustm=get_cluster(tt,clusters,clustn);
@@ -686,29 +735,20 @@ begin
 	plot(pROIs,pROI,size=(1000,400))
 end
 
+# ╔═╡ 5cd7671d-3537-48a1-8743-0f8eba8a250e
+cl_list=find_singles(sigdata,tt,6*(dct*texp.+readout_nt))
+
 # ╔═╡ ec93b3d6-bdef-4cb9-9be7-08693174beaf
 begin
 	moleculen=[]
 	for i in range(1,Nt)
 		append!(moleculen,sum(datas[:,:,i]))
 	end
-		
+	
 end
 
 # ╔═╡ 420756fd-4f72-4eda-90be-e81939137677
 plot(moleculen,xlabel="Frame",ylabel="Number of molecules in FOV")
-
-# ╔═╡ 5cfb1704-76ad-48cf-94f0-7b1cc4feb05e
-function fluorescent_trajectory(clustm,sigdata)
-	signalROI=[]
-	Nt=size(datas)[3]
-	for i in range(1,Nt)
-		imtt=sigdata[:,:,i]
-		siginclt=[imtt[row[1],row[2]] for row in eachrow(clustm)]
-		append!(signalROI,sum(siginclt))
-	end
-	signalROI
-end
 
 # ╔═╡ d2d5985a-85b1-4070-9c56-c0963796c5c8
 begin
@@ -726,7 +766,7 @@ begin
 end
 
 # ╔═╡ dcfe5891-a77f-4d9b-9e2a-194e14ec513c
-single_step_photobleaching(signalROI,clusters[clustn].size,th_ssp)
+length(single_step_photobleaching(signalROI,th_ssp))
 
 # ╔═╡ 03bf3bfb-2ec3-4ffa-9e83-37e21634a59d
 function tonpers(r::Float64, s::Float64, unit)
@@ -764,14 +804,11 @@ function nmcm3(cc::Float64=1e-12, ll::Float64=1)
 	nmu2 = ncm2 / cmtmu^2
 end
 
-# ╔═╡ 5850de84-9c5c-4036-b941-97e604d9b4a0
-nmcm3(1e-12, 1.0) ≈ tonpers(12.0, 1.0, 1.0μm^-2)
-
-# ╔═╡ 9541c8a6-318a-4266-b388-4b69ce7eb5b1
-pois_rand
-
-# ╔═╡ 0ab9fa82-6a93-48c9-9419-eb2e15f1df99
-5nm/2W
+# ╔═╡ 7732ecf2-5339-423a-9b4a-cd0dce519d66
+struct Prueba
+	a=3
+	b::Int64
+end
 
 # ╔═╡ Cell order:
 # ╠═625c1998-828c-11ed-2c7b-f731be119aaf
@@ -815,9 +852,9 @@ pois_rand
 # ╟─245c0ff7-22b2-47aa-969d-5cf4eca9831e
 # ╟─da45d069-b08d-4221-9e7d-32371090e94d
 # ╟─a45829e4-ac16-4e5d-9ce2-6007d62f37e8
-# ╟─907729d2-6b55-4afb-a3fd-5a450dd57a63
+# ╠═907729d2-6b55-4afb-a3fd-5a450dd57a63
 # ╟─adebe61f-6355-46f3-b6d8-86fd50484366
-# ╟─2e1ff7fa-1f63-4d52-87e2-b0d61fc1f85d
+# ╠═2e1ff7fa-1f63-4d52-87e2-b0d61fc1f85d
 # ╟─c1af380d-8f25-4e3b-b5b3-5ac78f0a9913
 # ╟─090f9903-8eb8-4846-909e-2cd2ffeb536e
 # ╟─f778f467-001d-4484-a20f-fd85e10558b1
@@ -855,7 +892,6 @@ pois_rand
 # ╟─d5dfad8c-6b6c-4d08-93fc-7971c7bec339
 # ╠═cd316a10-c17b-444b-9e7a-5ab5dff6aaf9
 # ╠═465e3476-e24d-44ed-aa59-31858e8efd4b
-# ╠═2a227d48-ba69-45f5-bc0a-8ae6e6d3ccf7
 # ╟─ec93b3d6-bdef-4cb9-9be7-08693174beaf
 # ╟─420756fd-4f72-4eda-90be-e81939137677
 # ╟─092ff59e-3aae-4dde-a778-973eb83acba1
@@ -863,22 +899,25 @@ pois_rand
 # ╟─095c751f-b5de-42ed-b3cc-e9d518fe0bc8
 # ╠═1c37e944-f18a-440d-ac01-bf8ecdb384c9
 # ╠═1fa4b498-0c7a-404e-9760-d526a0a3d40a
+# ╠═7a53b395-cab1-44b0-b802-12fe32833e22
 # ╟─f6aa8eee-4537-4b0e-a6b0-6efd2b27c9f0
 # ╠═e7a683e9-7545-4f57-835b-ea4a96320596
 # ╠═bf5b51d6-009b-4866-b489-2edd3d9a05a6
-# ╠═d2d5985a-85b1-4070-9c56-c0963796c5c8
+# ╠═7e07dafb-2ff2-4a35-b9b9-e7bc84c1ccfa
+# ╠═61700541-c9c2-41d0-beb1-3dd25351313c
 # ╠═ca0321ca-9cb0-44f0-b94a-2ef6afd3411d
 # ╠═e053e5d8-fde0-46b7-936c-e05360ecf479
 # ╠═ba4f3b05-d7eb-4a2f-b140-63115e26cd07
 # ╠═46f1ae54-e09e-4540-b2a2-a9d05a39cccd
 # ╠═dcfe5891-a77f-4d9b-9e2a-194e14ec513c
+# ╠═5cd7671d-3537-48a1-8743-0f8eba8a250e
 # ╠═c2289697-ab87-4f11-81e6-bee3439ca3cb
 # ╠═3ee11793-413a-4c22-b42c-c31265aecd44
 # ╠═a30f2d1a-58c9-49fd-9f66-40894b83a2e3
 # ╠═5cfb1704-76ad-48cf-94f0-7b1cc4feb05e
 # ╠═58d1ce85-a91d-4923-99a3-9517f8f8bff9
+# ╠═d22dbd8c-61c0-4079-9a38-d8a7a41ea67f
 # ╠═932ec313-85d5-4794-bda3-5d473b786ba0
-# ╠═003a2b16-665b-44a7-8dbd-c121b6e96a78
 # ╠═564e24e7-015f-4b5e-86a5-107909120b7f
 # ╠═32caa85b-f46a-4dc4-b3d8-d756bbd7e1f0
 # ╠═1e44b00e-70f5-4c46-a99e-939dbf5bf7f6
@@ -894,6 +933,4 @@ pois_rand
 # ╠═c45c60cd-b581-4be1-bfbf-fca725221e4b
 # ╠═f893442d-230c-4ecd-b618-2ad89393963b
 # ╠═c0f7e1ad-37d2-4b42-8683-5d2088a8c4ea
-# ╠═5850de84-9c5c-4036-b941-97e604d9b4a0
-# ╠═9541c8a6-318a-4266-b388-4b69ce7eb5b1
-# ╠═0ab9fa82-6a93-48c9-9419-eb2e15f1df99
+# ╠═7732ecf2-5339-423a-9b4a-cd0dce519d66
